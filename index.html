@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>StreamPull — Live Stream Downloader</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0a0a;
+    --surface: #111111;
+    --surface2: #1a1a1a;
+    --border: #2a2a2a;
+    --accent: #e8ff47;
+    --accent2: #47ffb4;
+    --red: #ff4757;
+    --text: #e8e8e8;
+    --muted: #666;
+    --mono: 'Space Mono', monospace;
+    --sans: 'Syne', sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--mono);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Scan line overlay */
+  body::before {
+    content: '';
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,0,0,0.07) 2px,
+      rgba(0,0,0,0.07) 4px
+    );
+    pointer-events: none;
+    z-index: 9999;
+  }
+
+  header {
+    border-bottom: 1px solid var(--border);
+    padding: 20px 40px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: var(--surface);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+
+  .logo {
+    font-family: var(--sans);
+    font-weight: 800;
+    font-size: 1.4rem;
+    letter-spacing: -0.02em;
+  }
+
+  .logo span {
+    color: var(--accent);
+  }
+
+  .status-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.7rem;
+    color: var(--muted);
+  }
+
+  .pulse {
+    width: 7px;
+    height: 7px;
+    background: var(--accent2);
+    border-radius: 50%;
+    animation: pulse 2s infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.4; transform: scale(0.8); }
+  }
+
+  main {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 40px 20px;
+  }
+
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    margin-bottom: 28px;
+  }
+
+  .panel-header {
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.65rem;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .panel-header::before {
+    content: '';
+    width: 12px;
+    height: 1px;
+    background: var(--accent);
+  }
+
+  .panel-body {
+    padding: 24px;
+  }
+
+  /* URL Input form */
+  .form-grid {
+    display: grid;
+    grid-template-columns: 1fr auto auto auto;
+    gap: 12px;
+    align-items: end;
+  }
+
+  @media (max-width: 700px) {
+    .form-grid { grid-template-columns: 1fr; }
+  }
+
+  .field label {
+    display: block;
+    font-size: 0.62rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 8px;
+  }
+
+  input[type="text"], select {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 0.82rem;
+    padding: 11px 14px;
+    width: 100%;
+    outline: none;
+    transition: border-color 0.2s;
+    -webkit-appearance: none;
+  }
+
+  input[type="text"]:focus, select:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent);
+  }
+
+  input[type="text"]::placeholder {
+    color: var(--muted);
+  }
+
+  select {
+    cursor: pointer;
+    min-width: 120px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23666'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    padding-right: 30px;
+  }
+
+  .btn {
+    background: var(--accent);
+    color: #000;
+    border: none;
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 12px 22px;
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+  }
+
+  .btn:hover { background: #fff; }
+  .btn:active { transform: scale(0.97); }
+
+  .btn-danger {
+    background: transparent;
+    color: var(--red);
+    border: 1px solid var(--red);
+    font-size: 0.68rem;
+    padding: 5px 10px;
+  }
+  .btn-danger:hover { background: var(--red); color: #fff; }
+
+  /* Downloads list */
+  .downloads-list {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    background: var(--border);
+  }
+
+  .dl-item {
+    background: var(--surface);
+    padding: 18px 20px;
+    display: grid;
+    grid-template-columns: auto 1fr auto auto;
+    gap: 14px;
+    align-items: start;
+    transition: background 0.15s;
+    cursor: pointer;
+  }
+
+  .dl-item:hover { background: var(--surface2); }
+
+  .dl-item.expanded { background: var(--surface2); }
+
+  .status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-top: 6px;
+    flex-shrink: 0;
+  }
+
+  .status-dot.downloading { background: var(--accent2); animation: pulse 1.5s infinite; }
+  .status-dot.completed   { background: var(--accent); }
+  .status-dot.error       { background: var(--red); }
+  .status-dot.cancelled   { background: var(--muted); }
+  .status-dot.queued      { background: #ff9f43; animation: pulse 2s infinite; }
+
+  .dl-info {}
+  .dl-url {
+    font-size: 0.8rem;
+    color: var(--text);
+    word-break: break-all;
+    margin-bottom: 5px;
+  }
+
+  .dl-meta {
+    font-size: 0.65rem;
+    color: var(--muted);
+    display: flex;
+    gap: 14px;
+    flex-wrap: wrap;
+  }
+
+  .dl-meta .tag {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    padding: 2px 7px;
+    font-size: 0.6rem;
+    letter-spacing: 0.05em;
+  }
+
+  .dl-progress {
+    font-size: 0.62rem;
+    color: var(--accent2);
+    margin-top: 5px;
+    max-width: 500px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .dl-status-label {
+    font-size: 0.65rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    text-align: right;
+  }
+
+  .dl-status-label.downloading { color: var(--accent2); }
+  .dl-status-label.completed   { color: var(--accent); }
+  .dl-status-label.error       { color: var(--red); }
+  .dl-status-label.queued      { color: #ff9f43; }
+
+  /* Log expansion */
+  .dl-log {
+    display: none;
+    margin: 0 20px 16px 42px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-top: none;
+    padding: 14px;
+    max-height: 220px;
+    overflow-y: auto;
+    font-size: 0.68rem;
+    color: var(--muted);
+    line-height: 1.7;
+  }
+
+  .dl-log.visible { display: block; }
+  .dl-log::-webkit-scrollbar { width: 4px; }
+  .dl-log::-webkit-scrollbar-track { background: transparent; }
+  .dl-log::-webkit-scrollbar-thumb { background: var(--border); }
+
+  .log-line { word-break: break-all; }
+  .log-line.accent { color: var(--accent2); }
+
+  /* Empty state */
+  .empty {
+    padding: 60px 20px;
+    text-align: center;
+    color: var(--muted);
+  }
+
+  .empty-icon {
+    font-size: 2.5rem;
+    margin-bottom: 16px;
+    opacity: 0.3;
+  }
+
+  .empty p {
+    font-size: 0.75rem;
+    letter-spacing: 0.06em;
+  }
+
+  /* Stats row */
+  .stats-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1px;
+    background: var(--border);
+    margin-bottom: 28px;
+  }
+
+  .stat-box {
+    background: var(--surface);
+    padding: 18px 20px;
+  }
+
+  .stat-value {
+    font-family: var(--sans);
+    font-size: 2rem;
+    font-weight: 800;
+    line-height: 1;
+    margin-bottom: 5px;
+  }
+
+  .stat-value.active  { color: var(--accent2); }
+  .stat-value.done    { color: var(--accent); }
+  .stat-value.err     { color: var(--red); }
+  .stat-value.total   { color: var(--text); }
+
+  .stat-label {
+    font-size: 0.6rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  /* Toast */
+  .toast {
+    position: fixed;
+    bottom: 28px;
+    right: 28px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 14px 20px;
+    font-size: 0.75rem;
+    opacity: 0;
+    transform: translateY(10px);
+    transition: all 0.25s;
+    z-index: 9998;
+    max-width: 320px;
+  }
+
+  .toast.show { opacity: 1; transform: translateY(0); }
+  .toast.success { border-color: var(--accent2); }
+  .toast.error   { border-color: var(--red); }
+
+  /* Error message */
+  .form-error {
+    font-size: 0.7rem;
+    color: var(--red);
+    margin-top: 8px;
+    display: none;
+  }
+  .form-error.visible { display: block; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">Stream<span>Pull</span></div>
+  <div class="status-bar">
+    <div class="pulse" id="sysStatus"></div>
+    <span id="sysLabel">SYSTEM READY</span>
+  </div>
+</header>
+
+<main>
+
+  <!-- Stats -->
+  <div class="stats-row" id="statsRow">
+    <div class="stat-box">
+      <div class="stat-value total" id="statTotal">0</div>
+      <div class="stat-label">Total Jobs</div>
+    </div>
+    <div class="stat-box">
+      <div class="stat-value active" id="statActive">0</div>
+      <div class="stat-label">Downloading</div>
+    </div>
+    <div class="stat-box">
+      <div class="stat-value done" id="statDone">0</div>
+      <div class="stat-label">Completed</div>
+    </div>
+    <div class="stat-box">
+      <div class="stat-value err" id="statErr">0</div>
+      <div class="stat-label">Errors</div>
+    </div>
+  </div>
+
+  <!-- Input Panel -->
+  <div class="panel">
+    <div class="panel-header">New Download</div>
+    <div class="panel-body">
+      <div class="form-grid">
+        <div class="field">
+          <label>Stream URL</label>
+          <input type="text" id="urlInput" placeholder="https://www.youtube.com/watch?v=..." />
+        </div>
+        <div class="field">
+          <label>Quality</label>
+          <select id="qualitySelect">
+            <option value="1080p">1080p</option>
+            <option value="1440p">1440p</option>
+            <option value="4k">4K</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Format</label>
+          <select id="formatSelect">
+            <option value="mp4">MP4</option>
+            <option value="mkv">MKV</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>&nbsp;</label>
+          <button class="btn" id="startBtn" onclick="startDownload()">▶ START</button>
+        </div>
+      </div>
+      <div class="form-error" id="formError"></div>
+    </div>
+  </div>
+
+  <!-- Downloads Panel -->
+  <div class="panel">
+    <div class="panel-header">Active &amp; Recent Downloads</div>
+    <div id="dlList"></div>
+  </div>
+
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const API = '';
+let allDownloads = [];
+let expandedIds = new Set();
+
+function showToast(msg, type = 'info') {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = `toast show ${type}`;
+  setTimeout(() => { t.className = 'toast'; }, 3500);
+}
+
+async function startDownload() {
+  const url = document.getElementById('urlInput').value.trim();
+  const quality = document.getElementById('qualitySelect').value;
+  const fmt = document.getElementById('formatSelect').value;
+  const errEl = document.getElementById('formError');
+
+  errEl.className = 'form-error';
+
+  if (!url) {
+    errEl.textContent = '⚠ Please enter a stream URL.';
+    errEl.className = 'form-error visible';
+    return;
+  }
+
+  const btn = document.getElementById('startBtn');
+  btn.textContent = '...';
+  btn.disabled = true;
+
+  try {
+    const res = await fetch(`${API}/api/downloads`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url, quality, format: fmt })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed');
+    document.getElementById('urlInput').value = '';
+    showToast('Download queued successfully', 'success');
+    fetchDownloads();
+  } catch(e) {
+    errEl.textContent = `⚠ ${e.message}`;
+    errEl.className = 'form-error visible';
+    showToast(e.message, 'error');
+  } finally {
+    btn.textContent = '▶ START';
+    btn.disabled = false;
+  }
+}
+
+async function cancelDownload(id, e) {
+  e.stopPropagation();
+  if (!confirm('Cancel this download?')) return;
+  try {
+    await fetch(`${API}/api/downloads/${id}`, { method: 'DELETE' });
+    showToast('Download cancelled', 'info');
+    fetchDownloads();
+  } catch(e) {
+    showToast('Failed to cancel', 'error');
+  }
+}
+
+function toggleExpand(id) {
+  if (expandedIds.has(id)) {
+    expandedIds.delete(id);
+  } else {
+    expandedIds.add(id);
+  }
+  renderDownloads(allDownloads);
+}
+
+function statusClass(s) {
+  return s === 'downloading' ? 'downloading'
+       : s === 'completed'   ? 'completed'
+       : s === 'error'       ? 'error'
+       : s === 'cancelled'   ? 'cancelled'
+       : 'queued';
+}
+
+function renderDownloads(list) {
+  const container = document.getElementById('dlList');
+
+  document.getElementById('statTotal').textContent = list.length;
+  document.getElementById('statActive').textContent = list.filter(d => d.status === 'downloading' || d.status === 'queued').length;
+  document.getElementById('statDone').textContent = list.filter(d => d.status === 'completed').length;
+  document.getElementById('statErr').textContent = list.filter(d => d.status === 'error').length;
+
+  if (!list.length) {
+    container.innerHTML = `
+      <div class="empty">
+        <div class="empty-icon">⬇</div>
+        <p>No downloads yet. Paste a stream URL above to get started.</p>
+      </div>`;
+    return;
+  }
+
+  const sorted = [...list].sort((a,b) => new Date(b.started_at) - new Date(a.started_at));
+  let html = '<div class="downloads-list">';
+
+  for (const dl of sorted) {
+    const sc = statusClass(dl.status);
+    const exp = expandedIds.has(dl.id);
+    const logLines = (dl.log || []).slice(-30).map(l =>
+      `<div class="log-line${l.includes('[download]') ? ' accent' : ''}">${escHtml(l)}</div>`
+    ).join('');
+
+    const shortUrl = dl.url.length > 60 ? dl.url.slice(0, 60) + '…' : dl.url;
+    const timeStr = new Date(dl.started_at).toLocaleTimeString();
+
+    const cancelBtn = (dl.status === 'downloading' || dl.status === 'queued')
+      ? `<button class="btn btn-danger" onclick="cancelDownload('${dl.id}', event)">✕ STOP</button>`
+      : '';
+
+    html += `
+      <div class="dl-item ${exp ? 'expanded' : ''}" onclick="toggleExpand('${dl.id}')">
+        <div class="status-dot ${sc}"></div>
+        <div class="dl-info">
+          <div class="dl-url">${escHtml(shortUrl)}</div>
+          <div class="dl-meta">
+            <span class="tag">${escHtml(dl.quality)}</span>
+            <span class="tag">${escHtml(dl.format.toUpperCase())}</span>
+            <span>${timeStr}</span>
+            ${dl.error ? `<span style="color:var(--red)">${escHtml(dl.error)}</span>` : ''}
+          </div>
+          ${dl.progress ? `<div class="dl-progress">${escHtml(dl.progress)}</div>` : ''}
+        </div>
+        <div class="dl-status-label ${sc}">${dl.status.toUpperCase()}</div>
+        <div>${cancelBtn}</div>
+      </div>
+      <div class="dl-log ${exp ? 'visible' : ''}" id="log-${dl.id}">
+        ${logLines || '<span style="color:var(--muted);font-size:0.65rem">No log output yet...</span>'}
+      </div>`;
+  }
+
+  html += '</div>';
+  container.innerHTML = html;
+
+  // Auto-scroll expanded logs
+  for (const id of expandedIds) {
+    const el = document.getElementById(`log-${id}`);
+    if (el) el.scrollTop = el.scrollHeight;
+  }
+}
+
+function escHtml(str) {
+  return String(str)
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;');
+}
+
+async function fetchDownloads() {
+  try {
+    const res = await fetch(`${API}/api/downloads`);
+    allDownloads = await res.json();
+    renderDownloads(allDownloads);
+  } catch(e) {
+    console.error('Fetch error:', e);
+  }
+}
+
+// Enter key to start
+document.getElementById('urlInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') startDownload();
+});
+
+fetchDownloads();
+setInterval(fetchDownloads, 3000);
+</script>
+</body>
+</html>
